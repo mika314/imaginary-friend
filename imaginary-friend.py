@@ -18,11 +18,11 @@ async def on_ready():
 # Create a queue to store the image generation tasks
 image_queue = queue.Queue()
 
-async def send_images(channel, images):
+async def send_images(channel, images, prompt):
     for image in images:
         print(f"uploading the image {image}")
         with open(image, 'rb') as f:
-            sent_message = await channel.send(file=discord.File(f))
+            sent_message = await channel.send(file=discord.File(f), content=f"Prompt: \"{prompt}\"")
             await sent_message.add_reaction('❌')
 
 # Create a function to handle the image generation tasks
@@ -34,7 +34,7 @@ def handle_image_generation():
         images = glob.glob(images_path + '*.png')
         images.sort(key=lambda x: os.path.getmtime(x))
         images = images[-9:]
-        coro = send_images(message.channel, images)
+        coro = send_images(message.channel, images, prompt)
         asyncio.ensure_future(coro, loop=client.loop)
         image_queue.task_done()
 
@@ -46,6 +46,7 @@ async def on_message(message):
     if message.content.startswith('/img'):
         prompt = message.content[5:]
         print(f'> {prompt}')
+        await message.channel.send(f"Prompt \"{prompt}\" is queued...")
         # Add the prompt to the image generation queue
         image_queue.put((prompt, message))
 
