@@ -18,25 +18,28 @@ async def on_ready():
 # Create a queue to store the image generation tasks
 image_queue = queue.Queue()
 
+async def send_images(channel, images):
+    for image in images:
+        print(f"uploading the image {image}")
+        with open(image, 'rb') as f:
+            sent_message = await channel.send(file=discord.File(f))
+            await sent_message.add_reaction('❌')
+
 # Create a function to handle the image generation tasks
 def handle_image_generation():
     while True:
-        prompt = image_queue.get()
+        prompt, message = image_queue.get()
         subprocess.run(['./run_txt2img.sh', prompt], check=True)
         images_path = '/home/mika/prj/stablediffusion/outputs/txt2img-samples/samples/'
         images = glob.glob(images_path + '*.png')
         images.sort(key=lambda x: os.path.getmtime(x))
         images = images[-9:]
-        loop = asyncio.get_event_loop()
-        for image in images:
-            with open(image, 'rb') as f:
-                coro = message.channel.send(file=discord.File(f))
-                asyncio.run_coroutine_threadsafe(coro, loop)
+        coro = send_images(message.channel, images)
+        asyncio.ensure_future(coro, loop=client.loop)
         image_queue.task_done()
 
-# Start the thread to handle the image generation tasks
-image_thread = threading.Thread(target=handle_image_generation)
-image_thread.start()
+# Start the thread to handle the image
+threading.Thread(target=handle_image_generation, daemon=True).start()
 
 @client.event
 async def on_message(message):
@@ -44,7 +47,7 @@ async def on_message(message):
         prompt = message.content[5:]
         print(f'> {prompt}')
         # Add the prompt to the image generation queue
-        image_queue.put(prompt)
+        image_queue.put((prompt, message))
 
 @client.event
 async def on_raw_reaction_add(payload):
