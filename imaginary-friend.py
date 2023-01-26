@@ -1,8 +1,11 @@
 from datetime import datetime
+import asyncio
 import discord
 import glob
 import os
+import queue
 import subprocess
+import threading
 
 intents = discord.Intents(messages=True, guilds=True, guild_messages=True, guild_reactions=True, message_content=True)
 
@@ -12,27 +15,36 @@ client = discord.Client(intents=intents)
 async def on_ready():
     print(f'{client.user} has connected to Discord!')
 
+# Create a queue to store the image generation tasks
+image_queue = queue.Queue()
+
+# Create a function to handle the image generation tasks
+def handle_image_generation():
+    while True:
+        prompt = image_queue.get()
+        subprocess.run(['./run_txt2img.sh', prompt], check=True)
+        images_path = '/home/mika/prj/stablediffusion/outputs/txt2img-samples/samples/'
+        images = glob.glob(images_path + '*.png')
+        images.sort(key=lambda x: os.path.getmtime(x))
+        images = images[-9:]
+        loop = asyncio.get_event_loop()
+        for image in images:
+            with open(image, 'rb') as f:
+                coro = message.channel.send(file=discord.File(f))
+                asyncio.run_coroutine_threadsafe(coro, loop)
+        image_queue.task_done()
+
+# Start the thread to handle the image generation tasks
+image_thread = threading.Thread(target=handle_image_generation)
+image_thread.start()
+
 @client.event
 async def on_message(message):
     if message.content.startswith('/img'):
         prompt = message.content[5:]
         print(f'> {prompt}')
-        # run the command here, using the prompt variable to fill in the [prompt] argument
-        subprocess.run(['./run_txt2img.sh', prompt], check=True)
-        # upload the generated images to Discord and add the prompt and X emote
-        images_path = '/home/mika/prj/stablediffusion/outputs/txt2img-samples/samples/'
-        images = glob.glob(images_path + '*.png')
-        images.sort(key=lambda x: os.path.getmtime(x))
-        images = images[-9:]
- 
-        for image in images:
-            with open(image, 'rb') as f:
-                sent_message = await message.channel.send(file=discord.File(f))
-                await sent_message.add_reaction('❌')
-        
-    if message.content.startswith('/delete'):
-        # check if the message has an X emote and delete it if necessary
-        pass
+        # Add the prompt to the image generation queue
+        image_queue.put(prompt)
 
 @client.event
 async def on_raw_reaction_add(payload):
