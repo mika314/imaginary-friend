@@ -28,8 +28,11 @@ async def send_images(channel, images, prompt):
 # Create a function to handle the image generation tasks
 def handle_image_generation():
     while True:
-        prompt, message = image_queue.get()
-        subprocess.run(['./run_txt2img.sh', prompt], check=True)
+        prompt, message, isWaifu = image_queue.get()
+        if isWaifu:
+            subprocess.run(['./run_waifu_txt2img.sh', prompt], check=True)
+        else:
+            subprocess.run(['./run_txt2img.sh', prompt], check=True)
         images_path = '/home/mika/prj/stablediffusion/outputs/txt2img-samples/samples/'
         images = glob.glob(images_path + '*.png')
         images.sort(key=lambda x: os.path.getmtime(x))
@@ -47,8 +50,12 @@ async def on_message(message):
         prompt = message.content[5:]
         print(f'> {prompt}')
         await message.channel.send(f"Prompt \"{prompt}\" is queued...")
-        # Add the prompt to the image generation queue
-        image_queue.put((prompt, message))
+        image_queue.put((prompt, message, False))
+    if message.content.startswith('/waifu'):
+        prompt = message.content[7:]
+        print(f'> Waifu {prompt}')
+        await message.channel.send(f"Waifu \"{prompt}\" is queued...")
+        image_queue.put((prompt, message, True))
 
 @client.event
 async def on_raw_reaction_add(payload):
