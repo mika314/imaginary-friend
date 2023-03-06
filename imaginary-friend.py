@@ -32,24 +32,29 @@ async def send_images(channel, images, prompt):
 def handle_image_generation():
     while True:
         prompt, message, isWaifu, image_path = image_queue.get()
-        if isWaifu:
-            subprocess.run(['./run_waifu_txt2img.sh', prompt, image_path], check=True)
-        else:
-            subprocess.run(['./run_txt2img.sh', prompt, image_path], check=True)
-        if image_path == "":
+        try:
+            if isWaifu:
+                subprocess.run(['./run_waifu_txt2img.sh', prompt, image_path], check=True)
+            else:
+                subprocess.run(['./run_txt2img.sh', prompt, image_path], check=True)
             images_path = '/home/mika/prj/stablediffusion/outputs/txt2img-samples/samples/'
-            images = glob.glob(images_path + '*.png')
-            images.sort(key=lambda x: os.path.getmtime(x))
-            images = images[-9:]
-            coro = send_images(message.channel, images, prompt)
-            asyncio.ensure_future(coro, loop=client.loop)
-        else:
-            images_path = '/home/mika/prj/stablediffusion/outputs/img2img-samples/samples/'
-            images = glob.glob(images_path + '*.png')
-            images.sort(key=lambda x: os.path.getmtime(x))
-            images = images[-4:]
-            coro = send_images(message.channel, images, prompt)
-            asyncio.ensure_future(coro, loop=client.loop)
+            if image_path == "":
+                images = glob.glob(images_path + '*.png')
+                images.sort(key=lambda x: os.path.getmtime(x))
+                images = images[-9:]
+                coro = send_images(message.channel, images, prompt)
+                asyncio.ensure_future(coro, loop=client.loop)
+            else:
+                images_path = '/home/mika/prj/stablediffusion/outputs/img2img-samples/samples/'
+                images = glob.glob(images_path + '*.png')
+                images.sort(key=lambda x: os.path.getmtime(x))
+                images = images[-4:]
+                coro = send_images(message.channel, images, prompt)
+                asyncio.ensure_future(coro, loop=client.loop)
+        except subprocess.CalledProcessError as e:
+            # Handle the error
+            error_message = f"Error generating image: {e}\nPlease try again later or contact the administrator."
+            asyncio.ensure_future(message.channel.send(error_message), loop=client.loop)
         image_queue.task_done()
 
 # Start the thread to handle the image
