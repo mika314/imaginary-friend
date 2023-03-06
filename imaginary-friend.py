@@ -1,3 +1,5 @@
+import os
+import tempfile
 from datetime import datetime
 import asyncio
 import discord
@@ -6,6 +8,7 @@ import os
 import queue
 import subprocess
 import threading
+import requests
 
 intents = discord.Intents(messages=True, guilds=True, guild_messages=True, guild_reactions=True, message_content=True)
 
@@ -28,17 +31,25 @@ async def send_images(channel, images, prompt):
 # Create a function to handle the image generation tasks
 def handle_image_generation():
     while True:
-        prompt, message, isWaifu = image_queue.get()
+        prompt, message, isWaifu, image_path = image_queue.get()
         if isWaifu:
-            subprocess.run(['./run_waifu_txt2img.sh', prompt], check=True)
+            subprocess.run(['./run_waifu_txt2img.sh', prompt, image_path], check=True)
         else:
-            subprocess.run(['./run_txt2img.sh', prompt], check=True)
-        images_path = '/home/mika/prj/stablediffusion/outputs/txt2img-samples/samples/'
-        images = glob.glob(images_path + '*.png')
-        images.sort(key=lambda x: os.path.getmtime(x))
-        images = images[-9:]
-        coro = send_images(message.channel, images, prompt)
-        asyncio.ensure_future(coro, loop=client.loop)
+            subprocess.run(['./run_txt2img.sh', prompt, image_path], check=True)
+        if image_path == "":
+            images_path = '/home/mika/prj/stablediffusion/outputs/txt2img-samples/samples/'
+            images = glob.glob(images_path + '*.png')
+            images.sort(key=lambda x: os.path.getmtime(x))
+            images = images[-9:]
+            coro = send_images(message.channel, images, prompt)
+            asyncio.ensure_future(coro, loop=client.loop)
+        else:
+            images_path = '/home/mika/prj/stablediffusion/outputs/img2img-samples/samples/'
+            images = glob.glob(images_path + '*.png')
+            images.sort(key=lambda x: os.path.getmtime(x))
+            images = images[-4:]
+            coro = send_images(message.channel, images, prompt)
+            asyncio.ensure_future(coro, loop=client.loop)
         image_queue.task_done()
 
 # Start the thread to handle the image
@@ -50,12 +61,40 @@ async def on_message(message):
         prompt = message.content[5:]
         print(f'> {prompt}')
         await message.channel.send(f"Prompt \"{prompt}\" is queued...")
-        image_queue.put((prompt, message, False))
+        # check if message has an embedded image
+        if message.attachments:
+            # download the image
+            image_url = message.attachments[0].url
+            image_extension = os.path.splitext(image_url)[-1]
+            with requests.get(image_url, stream=True) as r:
+                r.raise_for_status()
+                with tempfile.NamedTemporaryFile(suffix=image_extension, delete=False) as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                    image_path = f.name
+            # add the image path to the queue
+            image_queue.put((prompt, message, False, image_path))
+        else:
+            image_queue.put((prompt, message, False, ""))
     if message.content.startswith('/waifu'):
         prompt = message.content[7:]
         print(f'> Waifu {prompt}')
         await message.channel.send(f"Waifu \"{prompt}\" is queued...")
-        image_queue.put((prompt, message, True))
+        # check if message has an embedded image
+        if message.attachments:
+            # download the image
+            image_url = message.attachments[0].url
+            image_extension = os.path.splitext(image_url)[-1]
+            with requests.get(image_url, stream=True) as r:
+                r.raise_for_status()
+                with tempfile.NamedTemporaryFile(suffix=image_extension, delete=False) as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                    image_path = f.name
+            # add the image path to the queue
+            image_queue.put((prompt, message, True, image_path))
+        else:
+            image_queue.put((prompt, message, True, ""))
 
 @client.event
 async def on_raw_reaction_add(payload):
